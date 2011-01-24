@@ -25,6 +25,8 @@ import nu.xom.Document;
 import nu.xom.Element;
 import nu.xom.Serializer;
 import nu.xom.ParsingException;
+import org.wiztools.commons.MultiValueMap;
+import org.wiztools.commons.StringUtil;
 
 /**
  *
@@ -36,7 +38,7 @@ public final class XMLUtil {
     }
     private static final Logger LOG = Logger.getLogger(XMLUtil.class.getName());
     private static final String[] VERSIONS = new String[]{
-        "2.0", "2.1", "2.2a1", "2.2a2", "2.2", RCConstants.VERSION
+        "2.0", "2.1", "2.2a1", "2.2a2", "2.2", "2.3b1", "2.3", "2.3.1", "2.3.2", RCConstants.VERSION
     };
     public static final String XML_MIME = "application/xml";
     
@@ -106,21 +108,21 @@ public final class XMLUtil {
 
                 // creating the auth-host child element
                 String authHost = bean.getAuthHost();
-                if (!Util.isStrEmpty(authHost)) {
+                if (!StringUtil.isStrEmpty(authHost)) {
                     reqChildSubElement = new Element("auth-host");
                     reqChildSubElement.appendChild(authHost);
                     reqChildElement.appendChild(reqChildSubElement);
                 }
                 // creating the auth-realm child element
                 String authRealm = bean.getAuthRealm();
-                if (!Util.isStrEmpty(authRealm)) {
+                if (!StringUtil.isStrEmpty(authRealm)) {
                     reqChildSubElement = new Element("auth-realm");
                     reqChildSubElement.appendChild(authRealm);
                     reqChildElement.appendChild(reqChildSubElement);
                 }
                 // creating the auth-username child element
                 String authUsername = bean.getAuthUsername();
-                if (!Util.isStrEmpty(authUsername)) {
+                if (!StringUtil.isStrEmpty(authUsername)) {
                     reqChildSubElement = new Element("auth-username");
                     reqChildSubElement.appendChild(authUsername);
                     reqChildElement.appendChild(reqChildSubElement);
@@ -129,7 +131,7 @@ public final class XMLUtil {
                 String authPassword = null;
                 if (bean.getAuthPassword() != null) {
                     authPassword = new String(bean.getAuthPassword());
-                    if (!Util.isStrEmpty(authPassword)) {
+                    if (!StringUtil.isStrEmpty(authPassword)) {
                         String encPassword = Base64.encodeObject(authPassword);
 
                         reqChildSubElement = new Element("auth-password");
@@ -141,7 +143,7 @@ public final class XMLUtil {
 
             // Creating SSL elements
             String sslTruststore = bean.getSslTrustStore();
-            if (!Util.isStrEmpty(sslTruststore)) {
+            if (!StringUtil.isStrEmpty(sslTruststore)) {
                 // 1. Create truststore entry
                 reqChildSubElement = new Element("ssl-truststore");
                 reqChildSubElement.appendChild(sslTruststore);
@@ -162,15 +164,16 @@ public final class XMLUtil {
             }
 
             // creating the headers child element
-            Map<String, String> headers = bean.getHeaders();
+            MultiValueMap<String, String> headers = bean.getHeaders();
             if (!headers.isEmpty()) {
                 reqChildSubElement = new Element("headers");
                 for (String key : headers.keySet()) {
-                    String value = headers.get(key);
-                    reqChildSubSubElement = new Element("header");
-                    reqChildSubSubElement.addAttribute(new Attribute("key", key));
-                    reqChildSubSubElement.addAttribute(new Attribute("value", value));
-                    reqChildSubElement.appendChild(reqChildSubSubElement);
+                    for(String value: headers.get(key)) {
+                        reqChildSubSubElement = new Element("header");
+                        reqChildSubSubElement.addAttribute(new Attribute("key", key));
+                        reqChildSubSubElement.addAttribute(new Attribute("value", value));
+                        reqChildSubElement.appendChild(reqChildSubSubElement);
+                    }
                 }
                 reqChildElement.appendChild(reqChildSubElement);
             }
@@ -335,20 +338,21 @@ public final class XMLUtil {
             respChildElement.appendChild(respChildSubElement);
 
             // adding third sub child element - headers
-            Map<String, String> headers = bean.getHeaders();
+            MultiValueMap<String, String> headers = bean.getHeaders();
             if (!headers.isEmpty()) {
                 Attribute keyAttribute = null;
                 Attribute valueAttribute = null;
                 // creating sub child-child element 
                 respChildSubElement = new Element("headers");
                 for (String key : headers.keySet()) {
-                    String value = headers.get(key);
-                    respChildSubSubElement = new Element("header");
-                    keyAttribute = new Attribute("key", key);
-                    valueAttribute = new Attribute("value", value);
-                    respChildSubSubElement.addAttribute(keyAttribute);
-                    respChildSubSubElement.addAttribute(valueAttribute);
-                    respChildSubElement.appendChild(respChildSubSubElement);
+                    for(String value: headers.get(key)) {
+                        respChildSubSubElement = new Element("header");
+                        keyAttribute = new Attribute("key", key);
+                        valueAttribute = new Attribute("value", value);
+                        respChildSubSubElement.addAttribute(keyAttribute);
+                        respChildSubSubElement.addAttribute(valueAttribute);
+                        respChildSubElement.appendChild(respChildSubSubElement);
+                    }
                 }
                 // add response child element - headers
                 respChildElement.appendChild(respChildSubElement);

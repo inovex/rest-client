@@ -7,19 +7,11 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
-import java.net.URL;
-import java.net.URLConnection;
 import java.net.URLEncoder;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.MalformedInputException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,8 +20,8 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import org.wiztools.restclient.XMLException;
-import org.wiztools.restclient.XMLUtil;
+import org.wiztools.commons.MultiValueMap;
+import org.wiztools.commons.StringUtil;
 
 /**
  *
@@ -39,17 +31,6 @@ public final class Util {
     
     // private constructor so that no instance from outside can be created
     private Util(){}
-
-    public static boolean isStrEmpty(final String str) {
-        if (str == null || "".equals(str.trim())) {
-            return true;
-        }
-        return false;
-    }
-
-    public static String getNullStrIfNull(final String str) {
-        return str == null ? "" : str;
-    }
 
     public static String getStackTrace(final Throwable aThrowable) {
         String errorMsg = aThrowable.getMessage();
@@ -70,76 +51,22 @@ public final class Util {
     }
     
     private static final String ENCODE = "UTF-8";
-    private static final Charset UTF8CHARSET = Charset.forName(ENCODE);
 
-    public static String inputStream2String(final InputStream in) throws IOException {
-        if (in == null) {
-            return "";
-        }
-        StringBuilder out = new StringBuilder();
-        byte[] b = new byte[4096];
-        CharsetDecoder decoder = UTF8CHARSET.newDecoder();
-        for (int n; (n = in.read(b)) != -1;) {
-            CharBuffer charBuffer = null;
-            try{
-                charBuffer = decoder.decode(ByteBuffer.wrap(b, 0, n));
-            }
-            catch(MalformedInputException ex){
-                throw new IOException(
-                        "File not in supported encoding (" + ENCODE + ")", ex);
-            }
-            charBuffer.rewind(); // Bring the buffer's pointer to 0
-            out.append(charBuffer.toString());
-        }
-        return out.toString();
-    }
-    
-
-    public static String parameterEncode(Map<String, String> params) {
-        StringBuilder sb = new StringBuilder();
+    public static String parameterEncode(MultiValueMap<String, String> params) {
+        final StringBuilder sb = new StringBuilder();
         for (String key : params.keySet()) {
             try {
-                String value = params.get(key);
-                String encodedKey = URLEncoder.encode(key, ENCODE);
-                String encodedValue = URLEncoder.encode(value, ENCODE);
-                sb.append(encodedKey).append("=").append(encodedValue).append("&");
+                for(final String value: params.get(key)) {
+                    String encodedKey = URLEncoder.encode(key, ENCODE);
+                    String encodedValue = URLEncoder.encode(value, ENCODE);
+                    sb.append(encodedKey).append("=").append(encodedValue).append("&");
+                }
             } catch (UnsupportedEncodingException ex) {
                 assert true : "Encoder UTF-8 supported in all Java platforms.";
             }
         }
         sb.deleteCharAt(sb.length() - 1);
         return sb.toString();
-    }
-
-    public static String getStringFromFile(File f) throws FileNotFoundException, IOException {
-        InputStream is = null;
-        try {
-            is = new FileInputStream(f);
-            return inputStream2String(is);
-        } finally {
-            if(is != null){
-                is.close();
-            }
-        }
-    }
-
-    public static String getMimeType(File f) {
-        String type = null;
-        URLConnection uc = null;
-        try {
-            URL u = f.toURI().toURL();
-            uc = u.openConnection();
-            type = uc.getContentType();
-        } catch (Exception e) {
-            // Do nothing!
-            e.printStackTrace();
-        }
-        finally{
-            if(uc != null){
-                // No method like uc.close() !!
-            }
-        }
-        return type;
     }
 
     public static void createReqResArchive(Request request, Response response, File zipFile)
@@ -246,7 +173,7 @@ public final class Util {
      * @param statusLine
      * @return The status code from HTTP response status line.
      */
-    public static final int getStatusCodeFromStatusLine(final String statusLine){
+    public static int getStatusCodeFromStatusLine(final String statusLine){
         int retVal = -1;
         final String STATUS_PATTERN = "[^\\s]+\\s([0-9]{3})\\s.*";
         Pattern p = Pattern.compile(STATUS_PATTERN);
@@ -263,8 +190,37 @@ public final class Util {
      * @param charset
      * @return The formatted content-type and charset.
      */
-    public static final String getFormattedContentType(final String contentType, final String charset){
-        String charsetFormatted = Util.isStrEmpty(charset)? "": "; charset=" + charset;
+    public static String getFormattedContentType(final String contentType, final String charset){
+        String charsetFormatted = StringUtil.isStrEmpty(charset)? "": "; charset=" + charset;
         return contentType + charsetFormatted;
+    }
+
+    public static String getCharsetFromContentType(final String contentType) {
+        Pattern p = Pattern.compile("^.+charset=([^;]+).*$");
+        Matcher m = p.matcher(contentType);
+        if(m.matches()) {
+            return m.group(1).trim();
+        }
+        return null;
+    }
+
+    /**
+     * Parses the Content-Type HTTP header and returns the MIME type part of the
+     * response. For example, when receiving Content-Type header like:
+     *
+     * application/xml;charset=UTF-8
+     *
+     * This method will return "application/xml".
+     * @param contentType
+     * @return
+     */
+    public static String getMimeFromContentType(final String contentType) {
+        final int occurance = contentType.indexOf(';');
+        if(occurance == -1) {
+            return contentType;
+        }
+        else {
+            return contentType.substring(0, occurance);
+        }
     }
 }

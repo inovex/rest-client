@@ -4,9 +4,10 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import org.wiztools.commons.CollectionsUtil;
+import org.wiztools.commons.MultiValueMap;
+import org.wiztools.commons.MultiValueMapArrayList;
 
 /**
  *
@@ -22,12 +23,12 @@ public final class RequestBean implements Request{
     private String authRealm;
     private String authUsername;
     private char[] authPassword;
-    private Map<String, String> headers;
+    private MultiValueMap<String, String> headers;
     private ReqEntity body;
     private String testScript;
     private String sslTrustStore;
     private char[] sslTrustStorePassword;
-    private SSLHostnameVerifier sslHostNameVerifier;
+    private SSLHostnameVerifier sslHostNameVerifier = SSLHostnameVerifier.STRICT; // Default to strict!
     private HTTPVersion httpVersion = HTTPVersion.getDefault(); // Initialize to the default version
 
     public HTTPVersion getHttpVersion() {
@@ -126,8 +127,8 @@ public final class RequestBean implements Request{
         this.authUsername = authUsername;
     }
 
-    public Map<String, String> getHeaders() {
-        return Collections.unmodifiableMap(headers);
+    public MultiValueMap<String, String> getHeaders() {
+        return CollectionsUtil.unmodifiableMultiValueMap(headers);
     }
 
     public void addHeader(final String key, final String value){
@@ -151,7 +152,7 @@ public final class RequestBean implements Request{
     }
     
     public RequestBean(){
-        headers = new LinkedHashMap();
+        headers = new MultiValueMapArrayList<String, String>();
         authMethods = new ArrayList<HTTPAuthMethod>();
     }
     
@@ -171,7 +172,9 @@ public final class RequestBean implements Request{
         }
         if(headers.size() != 0){
             for(String header: headers.keySet()){
-                cloned.addHeader(header, headers.get(header));
+                for(String value: headers.get(header)) {
+                    cloned.addHeader(header, value);
+                }
             }
         }
         cloned.setMethod(method);

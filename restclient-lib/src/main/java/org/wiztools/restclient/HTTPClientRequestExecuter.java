@@ -7,10 +7,13 @@ import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.Charset;
+import java.nio.charset.IllegalCharsetNameException;
+import java.nio.charset.UnsupportedCharsetException;
 import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -57,12 +60,16 @@ import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.protocol.BasicHttpContext;
 import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
+import org.wiztools.commons.Implementation;
+import org.wiztools.commons.MultiValueMap;
+import org.wiztools.commons.StreamUtil;
+import org.wiztools.commons.StringUtil;
 
 /**
  *
  * @author subwiz
  */
-class HTTPClientRequestExecuter implements RequestExecuter {
+public class HTTPClientRequestExecuter implements RequestExecuter {
 
     private static final Logger LOG = Logger.getLogger(HTTPClientRequestExecuter.class.getName());
 
@@ -79,6 +86,7 @@ class HTTPClientRequestExecuter implements RequestExecuter {
      */
     private boolean isRequestStarted = false;
 
+    @Override
     public void execute(Request request, View... views) {
         // Verify if this is the first call to this object:
         if(isRequestStarted){
@@ -137,8 +145,8 @@ class HTTPClientRequestExecuter implements RequestExecuter {
         if (authEnabled) {
             String uid = request.getAuthUsername();
             String pwd = new String(request.getAuthPassword());
-            String host = Util.isStrEmpty(request.getAuthHost()) ? urlHost : request.getAuthHost();
-            String realm = Util.isStrEmpty(request.getAuthRealm()) ? AuthScope.ANY_REALM : request.getAuthRealm();
+            String host = StringUtil.isStrEmpty(request.getAuthHost()) ? urlHost : request.getAuthHost();
+            String realm = StringUtil.isStrEmpty(request.getAuthRealm()) ? AuthScope.ANY_REALM : request.getAuthRealm();
 
             // Type of authentication
             List<String> authPrefs = new ArrayList<String>(2);
@@ -200,11 +208,12 @@ class HTTPClientRequestExecuter implements RequestExecuter {
             method.setParams(new BasicHttpParams().setParameter(urlStr, url));
 
             // Get request headers
-            Map<String, String> header_data = request.getHeaders();
+            MultiValueMap<String, String> header_data = request.getHeaders();
             for (String key : header_data.keySet()) {
-                String value = header_data.get(key);
-                Header header = new BasicHeader(key, value);
-                method.addHeader(header);
+                for(String value: header_data.get(key)) {
+                    Header header = new BasicHeader(key, value);
+                    method.addHeader(header);
+                }
             }
 
             // POST/PUT method specific logic
@@ -230,35 +239,48 @@ class HTTPClientRequestExecuter implements RequestExecuter {
             }
 
             // SSL
-            String trustStorePath = request.getSslTrustStore();
+
+            // Set the hostname verifier:
+            SSLHostnameVerifier verifier = request.getSslHostNameVerifier();
+            final X509HostnameVerifier hcVerifier;
+            switch(verifier){
+                case STRICT:
+                    hcVerifier = SSLSocketFactory.STRICT_HOSTNAME_VERIFIER;
+                    break;
+                case BROWSER_COMPATIBLE:
+                    hcVerifier = SSLSocketFactory.BROWSER_COMPATIBLE_HOSTNAME_VERIFIER;
+                    break;
+                case ALLOW_ALL:
+                    hcVerifier = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+                    break;
+                default:
+                    hcVerifier = SSLSocketFactory.STRICT_HOSTNAME_VERIFIER;
+                    break;
+            }
+            
+            // Set the hostname verifier in the default SSL handler:
+            {
+                Scheme s = httpclient.getConnectionManager().getSchemeRegistry().getScheme("https");
+                SSLSocketFactory sslFac = (SSLSocketFactory) s.getSocketFactory();
+                sslFac.setHostnameVerifier(hcVerifier);
+            }
+
+            // SSL with truststore:
+            final String trustStorePath = request.getSslTrustStore();
             char[] trustStorePassword = request.getSslTrustStorePassword();
-            if(urlProtocol.equalsIgnoreCase("https") && !Util.isStrEmpty(trustStorePath)){
+            if(urlProtocol.equalsIgnoreCase("https") && !StringUtil.isStrEmpty(trustStorePath)){
                 KeyStore trustStore  = KeyStore.getInstance(KeyStore.getDefaultType());
-                FileInputStream instream = new FileInputStream(new File(trustStorePath));
-                try{
-                    trustStore.load(instream, trustStorePassword);
-                }
-                finally{
-                    instream.close();
+                if(!StringUtil.isStrEmpty(trustStorePath)) {
+                    FileInputStream instream = new FileInputStream(new File(trustStorePath));
+                    try{
+                        trustStore.load(instream, trustStorePassword);
+                    }
+                    finally{
+                        instream.close();
+                    }
                 }
 
                 SSLSocketFactory socketFactory = new SSLSocketFactory(trustStore);
-                SSLHostnameVerifier verifier = request.getSslHostNameVerifier();
-                X509HostnameVerifier hcVerifier = null;
-                switch(verifier){
-                    case STRICT:
-                        hcVerifier = SSLSocketFactory.STRICT_HOSTNAME_VERIFIER;
-                        break;
-                    case BROWSER_COMPATIBLE:
-                        hcVerifier = SSLSocketFactory.BROWSER_COMPATIBLE_HOSTNAME_VERIFIER;
-                        break;
-                    case ALLOW_ALL:
-                        hcVerifier = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
-                        break;
-                    default:
-                        hcVerifier = SSLSocketFactory.STRICT_HOSTNAME_VERIFIER;
-                        break;
-                }
                 socketFactory.setHostnameVerifier(hcVerifier);
                 Scheme sch = new Scheme(urlProtocol, socketFactory, urlPort);
                 httpclient.getConnectionManager().getSchemeRegistry().register(sch);
@@ -270,8 +292,8 @@ class HTTPClientRequestExecuter implements RequestExecuter {
                 @Override
                 public URI getLocationURI(HttpResponse response, HttpContext context) throws ProtocolException {
                     URI uri = super.getLocationURI(response, context);
-                    LOG.info("Redirect response status: " + response.getStatusLine());
-                    LOG.info("Redirect: " + uri);
+                    LOG.log(Level.INFO, "Redirect response status: {0}", response.getStatusLine());
+                    LOG.log(Level.INFO, "Redirect: {0}", uri);
                     return uri;
                 }
             });
@@ -290,16 +312,61 @@ class HTTPClientRequestExecuter implements RequestExecuter {
             response.setStatusLine(http_res.getStatusLine().toString());
 
             final Header[] responseHeaders = http_res.getAllHeaders();
+            String contentType = null;
             for (Header header : responseHeaders) {
                 response.addHeader(header.getName(), header.getValue());
+                if(header.getName().equalsIgnoreCase("content-type")) {
+                    contentType = header.getValue();
+                }
             }
 
-            HttpEntity entity = http_res.getEntity();
+            // find out the charset:
+            final Charset charset;
+            {
+                Charset c;
+                if(contentType != null) {
+                    final String charsetStr = Util.getCharsetFromContentType(contentType);
+                    try{
+                        c = Charset.forName(charsetStr);
+                    }
+                    catch(IllegalCharsetNameException ex) {
+                        LOG.log(Level.WARNING, "Charset name is illegal: {0}", charsetStr);
+                        c = Charset.defaultCharset();
+                    }
+                    catch(UnsupportedCharsetException ex) {
+                        LOG.log(Level.WARNING, "Charset {0} is not supported in this JVM.", charsetStr);
+                        c = Charset.defaultCharset();
+                    }
+                    catch(IllegalArgumentException ex) {
+                        LOG.log(Level.WARNING, "Charset parameter is not available in Content-Type header!");
+                        c = Charset.defaultCharset();
+                    }
+                }
+                else {
+                    c = Charset.defaultCharset();
+                    LOG.log(Level.WARNING, "Content-Type header not available in response. Using platform default encoding: {0}", c.name());
+                }
+                charset = c;
+            }
+
+            final HttpEntity entity = http_res.getEntity();
             if(entity != null){
                 InputStream is = entity.getContent();
-                String responseBody = Util.inputStream2String(is);
-                if (responseBody != null) {
-                    response.setResponseBody(responseBody);
+                try{
+                    String responseBody = StreamUtil.inputStream2String(is, charset);
+                    if (responseBody != null) {
+                        response.setResponseBody(responseBody);
+                    }
+                }
+                catch(IOException ex) {
+                    final String msg = "Response body conversion to string using "
+                            + charset.displayName()
+                            + " encoding failed. Response body not set!";
+
+                    for(View view: views) {
+                        view.doError(msg);
+                    }
+                    LOG.log(Level.WARNING, msg);
                 }
             }
 
@@ -319,9 +386,8 @@ class HTTPClientRequestExecuter implements RequestExecuter {
             for(View view: views){
                 view.doResponse(response);
             }
-        } /*catch (HttpException ex) {
-            view.doError(Util.getStackTrace(ex));
-        }*/ catch (IOException ex) {
+        }
+        catch (IOException ex) {
             if(!interruptedShutdown){
                 for(View view: views){
                     view.doError(Util.getStackTrace(ex));
@@ -354,6 +420,7 @@ class HTTPClientRequestExecuter implements RequestExecuter {
         }
     }
 
+    @Override
     public void abortExecution(){
         if(!isRequestCompleted){
             ClientConnectionManager conMgr = httpclient.getConnectionManager();
@@ -367,6 +434,7 @@ class HTTPClientRequestExecuter implements RequestExecuter {
     
     private static final class PreemptiveAuth implements HttpRequestInterceptor {
 
+        @Override
         public void process(
                 final HttpRequest request,
                 final HttpContext context) throws HttpException, IOException {
